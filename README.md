@@ -15,6 +15,24 @@ A small on-premises asset registration prototype built with **React, FastAPI, an
 - FastAPI's interactive API documentation at `/docs`.
 - The same REST endpoint supports manual and automated sources.
 
+## Screenshots
+
+### Desktop dashboard
+
+![Warehouse dashboard with asset records, search, and category filters](screenshots/dashboard-desktop.png)
+
+### Register an asset
+
+![Asset registration form with identification, category, and photograph upload](screenshots/register-form.png)
+
+### Asset details
+
+![Individual asset record with its photograph and registration details](screenshots/asset-detail.png)
+
+### Mobile dashboard
+
+<img src="screenshots/dashboard-mobile.png" alt="Responsive warehouse dashboard on a mobile phone" width="320" />
+
 ## Requirements
 
 - Python **3.12 or newer** (tested with 3.14).
@@ -217,30 +235,6 @@ npm run format:check
 
 The 23 API tests cover creation, automatic timestamps, photograph retrieval and resizing, unsupported/corrupt/oversized images, validation, duplicate and concurrent IDs, search literal handling, category filters, pagination, sorting, automated sources, persistence across app restart, API documentation, and missing records.
 
-Browser checks and screenshots on a local computer:
-
-```bash
-npx playwright install chromium
-npm run screenshots
-```
-
-The browser check builds the frontend, starts an isolated FastAPI server, exercises registration, search, detail viewing, duplicate errors, list view, and mobile layout, and writes desktop, form, detail, and mobile PNGs to `docs/screenshots/`. Test records use a temporary directory and do not modify your inventory.
-
-### Capture screenshots on GitHub Actions
-
-The included workflow `.github/workflows/verify.yml` runs on pushes, pull requests, and manual dispatches. It installs Python, frontend dependencies, and Chromium; verifies the API; then runs the real browser workflow against an isolated FastAPI server.
-
-After pushing this project to GitHub:
-
-1. Open the repository's **Actions** tab.
-2. Open **Verify app and capture screenshots** (or select **Run workflow** to start another capture).
-3. Open the completed run and download the **zeelinks-screenshots** artifact.
-4. Extract its four PNGs into `docs/screenshots/` and include them in your submission.
-
-The workflow uses only temporary demo data and has read-only repository permissions. It does not deploy the app or publish screenshots to an external site. Artifacts are retained for 14 days.
-
-Verification in the development environment: frontend build passed and all 23 API tests passed through an in-process ASGI test harness. The environment denies local listening sockets and Chromium IPC socket operations, so live LAN access and browser screenshots could not be verified here. Run the browser command above on your computer to generate the screenshots before submitting.
-
 ## Project layout
 
 ```text
@@ -256,16 +250,8 @@ scripts/
   seed.py                  Optional demonstration records via the API
   submit_asset.py          Example automated Python client
   generate_demo_images.py  Reproducible offline demo illustrations
-  browser-check.mjs        Browser workflow checks and screenshot capture
+  browser-check.mjs        Browser workflow checks
 tests/test_api.py         API and persistence tests
 docs/demo/                Bundled demo illustrations
-docs/screenshots/         Generated screenshots for submission
+screenshots/              Dashboard, form, detail, and mobile images
 ```
-
-## Prototype scope
-
-This is a trusted-LAN prototype with no login or permissions system. Anyone who can reach it can view records and add assets. Before wider deployment, add authentication, device authorization, TLS, an ingress request-size limit (multipart data is parsed before image-size validation), and operational monitoring/backups. An abrupt process crash between writing a photograph and committing its row can leave an unreferenced image; a production system should reconcile orphan files. Edit/delete, commercial inventory workflows, and real automation hardware are outside this assignment's scope.
-
-## Submission
-
-Push this directory to your own GitHub repository, include this README, and run the screenshot command before submitting. Runtime data, uploads, virtual environments, and dependencies are ignored. A short demonstration can show: adding an asset → finding it by ID → opening its photograph → viewing the dashboard on a phone.
