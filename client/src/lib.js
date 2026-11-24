@@ -13,6 +13,7 @@ export const formatTime = (date) => timeFormatter.format(new Date(date));
 
 export async function api(url, options = {}) {
   const response = await fetch(url, options);
+  if (response.status === 204 && response.ok) return null;
   let data;
   try {
     data = await response.json();

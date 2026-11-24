@@ -75,6 +75,23 @@ def normalize_image(raw: bytes) -> bytes:
         raise HTTPException(400, "Upload a valid, still JPG, PNG, or WebP image (up to 25 megapixels).") from exc
 
 
+
+def validate_fields(asset_id: str, category: str) -> tuple[str, str]:
+    asset_id, category = asset_id.strip(), category.strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._/-]{0,79}", asset_id):
+        raise HTTPException(400, "Asset ID must start with a letter or number. Use letters, numbers, spaces, dots, dashes, slashes, or underscores.")
+    if not category or len(category) > 60 or re.search(r"[\x00-\x1f\x7f]", category):
+        raise HTTPException(400, "Enter an asset category between 1 and 60 characters.")
+    return asset_id, category
+
+
+def read_photograph(photo: UploadFile) -> bytes:
+    raw = photo.file.read(MAX_IMAGE_BYTES + 1)
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise HTTPException(400, "Photograph must be 8 MB or smaller.")
+    return normalize_image(raw)
+
+
 def create_app(data_dir: Path | None = None, dist_dir: Path | None = None):
     storage = Path(data_dir or os.environ.get("DATA_DIR", ROOT / "data")).resolve()
     frontend = Path(dist_dir or ROOT / "dist")
@@ -138,18 +155,11 @@ def create_app(data_dir: Path | None = None, dist_dir: Path | None = None):
         photo: Annotated[UploadFile, File(description="Still JPEG, PNG, or WebP; maximum 8 MB / 25 megapixels")],
         source: Annotated[Literal["manual", "automated"], Form()] = "manual",
     ):
-        asset_id, asset_category = assetId.strip(), category.strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._/-]{0,79}", asset_id):
-            raise HTTPException(400, "Asset ID must start with a letter or number. Use letters, numbers, spaces, dots, dashes, slashes, or underscores.")
-        if not asset_category or re.search(r"[\x00-\x1f\x7f]", asset_category):
-            raise HTTPException(400, "Enter an asset category between 1 and 60 characters.")
+        asset_id, asset_category = validate_fields(assetId, category)
         with connection(storage) as db:
             if db.execute("SELECT id FROM assets WHERE asset_id = ?", [asset_id]).fetchone():
                 raise HTTPException(409, "An asset with this ID already exists.")
-        raw = photo.file.read(MAX_IMAGE_BYTES + 1)
-        if len(raw) > MAX_IMAGE_BYTES:
-            raise HTTPException(400, "Photograph must be 8 MB or smaller.")
-        encoded = normalize_image(raw)
+        encoded = read_photograph(photo)
         filename = f"{uuid4()}.jpg"
         photo_path = storage / "uploads" / filename
         try:
@@ -168,6 +178,64 @@ def create_app(data_dir: Path | None = None, dist_dir: Path | None = None):
             raise HTTPException(500, "Could not save the asset. Please try again.") from exc
         response.headers["Location"] = f'/api/assets/{row["id"]}'
         return serialize(row)
+
+    def remove_photograph(filename: str):
+        # File cleanup follows the committed database change. Missing files are harmless.
+        try:
+            (storage / "uploads" / filename).unlink(missing_ok=True)
+        except OSError:
+            logging.exception("Could not remove unused photograph %s", filename)
+
+    @app.put("/api/assets/{record_id}", response_model=Asset, tags=["Assets"], responses={404: {"description": "Asset not found"}, 409: {"description": "Asset ID already exists"}})
+    def update_asset(
+        record_id: int,
+        assetId: Annotated[str, Form(max_length=80)],
+        category: Annotated[str, Form(max_length=60)],
+        photo: Annotated[UploadFile | None, File(description="Optional replacement JPEG, PNG, or WebP photograph")] = None,
+    ):
+        with connection(storage) as db:
+            if db.execute("SELECT id FROM assets WHERE id = ?", [record_id]).fetchone() is None:
+                raise HTTPException(404, "Asset not found.")
+        asset_id, asset_category = validate_fields(assetId, category)
+        filename = f"{uuid4()}.jpg" if photo is not None else None
+        encoded = read_photograph(photo) if photo is not None else None
+        new_path = storage / "uploads" / filename if filename else None
+        try:
+            if new_path is not None:
+                new_path.write_bytes(encoded)
+            with connection(storage) as db:
+                # Serialize mutations before reading the current photograph so concurrent
+                # updates or deletion cannot leave references to a removed image.
+                db.execute("BEGIN IMMEDIATE")
+                previous = db.execute("SELECT * FROM assets WHERE id = ?", [record_id]).fetchone()
+                if previous is None:
+                    raise HTTPException(404, "Asset not found.")
+                db.execute("UPDATE assets SET asset_id = ?, category = ?, photo_filename = ? WHERE id = ?",
+                           [asset_id, asset_category, filename or previous["photo_filename"], record_id])
+                row = db.execute("SELECT * FROM assets WHERE id = ?", [record_id]).fetchone()
+        except Exception as exc:
+            if new_path is not None:
+                remove_photograph(filename)
+            if isinstance(exc, HTTPException):
+                raise
+            if isinstance(exc, sqlite3.IntegrityError):
+                raise HTTPException(409, "An asset with this ID already exists.") from exc
+            logging.exception("Could not update asset %s", record_id)
+            raise HTTPException(500, "Could not update the asset. Please try again.") from exc
+        if filename:
+            remove_photograph(previous["photo_filename"])
+        return serialize(row)
+
+    @app.delete("/api/assets/{record_id}", status_code=204, tags=["Assets"], responses={404: {"description": "Asset not found"}})
+    def delete_asset(record_id: int):
+        with connection(storage) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT * FROM assets WHERE id = ?", [record_id]).fetchone()
+            if row is None:
+                raise HTTPException(404, "Asset not found.")
+            db.execute("DELETE FROM assets WHERE id = ?", [record_id])
+        remove_photograph(row["photo_filename"])
+        return Response(status_code=204)
 
     app.mount("/uploads", StaticFiles(directory=storage / "uploads"), name="uploads")
     # Reserve unknown API paths before mounting the frontend at root.

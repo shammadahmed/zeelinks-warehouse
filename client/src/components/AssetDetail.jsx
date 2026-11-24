@@ -1,9 +1,16 @@
-import React, { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, Check, CheckCircle2, Loader2 } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import {
+  ArrowUpRight,
+  Check,
+  CheckCircle2,
+  Loader2,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import Modal from "./Modal.jsx";
 import { api, formatDate, formatTime, timezone } from "../lib.js";
 
-export default function AssetDetail({ id, onClose }) {
+export default function AssetDetail({ id, onClose, onEdit, onDelete }) {
   const [asset, setAsset] = useState(null);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
@@ -87,18 +94,34 @@ export default function AssetDetail({ id, onClose }) {
               Server timestamp: <span className="mono">{asset.createdAt}</span>
             </p>
           </div>
-          <footer className="modal-footer">
-            <a
-              className="secondary-button"
-              href={asset.photoUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open photograph <ArrowUpRight size={16} />
-            </a>
-            <button className="primary-button" onClick={onClose}>
-              Done <Check size={17} />
-            </button>
+          <footer className="modal-footer detail-action-footer">
+            <div className="record-actions">
+              <button
+                className="secondary-button delete-action"
+                onClick={() => onDelete(asset)}
+              >
+                <Trash2 size={16} /> Delete
+              </button>
+              <button
+                className="secondary-button"
+                onClick={() => onEdit(asset)}
+              >
+                <Pencil size={16} /> Edit
+              </button>
+            </div>
+            <div className="record-actions">
+              <a
+                className="secondary-button"
+                href={asset.photoUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open photograph <ArrowUpRight size={16} />
+              </a>
+              <button className="primary-button" onClick={onClose}>
+                Done <Check size={17} />
+              </button>
+            </div>
           </footer>
         </>
       )}

@@ -166,3 +166,111 @@ def test_frontend_and_openapi(storage, tmp_path):
         assert client.get('/docs').status_code == 200
         assert '/api/assets' in client.get('/openapi.json').json()['paths']
         assert client.get('/api/missing').status_code == 404
+
+
+def edit(client, record_id, asset_id='WH-EDITED', category='Equipment', content=None):
+    files = {'photo': ('replacement.png', content, 'image/png')} if content is not None else None
+    return client.put(f'/api/assets/{record_id}', data={'assetId': asset_id, 'category': category}, files=files)
+
+
+def test_edit_details_keeps_photo_timestamp_and_source(client, storage):
+    original = create(client, source='automated').json()
+    response = edit(client, original['id'], ' WH-EDITED ', ' Equipment ')
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated == {**original, 'assetId': 'WH-EDITED', 'category': 'Equipment'}
+    assert client.get(f'/api/assets/{original["id"]}').json() == updated
+    assert client.get('/api/assets?q=WH-001').json()['total'] == 0
+    assert client.get('/api/assets?q=WH-EDITED&category=Equipment').json()['total'] == 1
+    assert client.get(original['photoUrl']).status_code == 200
+    assert len(list((storage / 'uploads').iterdir())) == 1
+
+
+def test_edit_replaces_photo_and_removes_previous_file(client, storage):
+    original = create(client).json()
+    response = edit(client, original['id'], content=photograph(size=(400, 300)))
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated['photoUrl'] != original['photoUrl']
+    assert updated['createdAt'] == original['createdAt']
+    assert client.get(original['photoUrl']).status_code == 404
+    with Image.open(io.BytesIO(client.get(updated['photoUrl']).content)) as image:
+        assert image.size == (400, 300)
+    assert len(list((storage / 'uploads').iterdir())) == 1
+
+
+def test_edit_own_id_is_allowed_and_duplicate_other_id_is_rejected(client, storage):
+    original = create(client, 'WH-001').json()
+    create(client, 'WH-002')
+    assert edit(client, original['id'], 'wh-001', 'Tools').status_code == 200
+    before = client.get(f'/api/assets/{original["id"]}').json()
+    assert edit(client, original['id'], 'wh-002', content=photograph()).status_code == 409
+    assert client.get(f'/api/assets/{original["id"]}').json() == before
+    assert client.get(before['photoUrl']).status_code == 200
+    assert len(list((storage / 'uploads').iterdir())) == 2
+
+
+@pytest.mark.parametrize('asset_id,category', [('?', 'Tools'), ('X' * 81, 'Tools'), ('WH-001', ''), ('WH-001', 'X' * 61)])
+def test_invalid_edit_fields_leave_record_unchanged(client, asset_id, category):
+    original = create(client).json()
+    assert edit(client, original['id'], asset_id, category).status_code in {400, 422}
+    assert client.get(f'/api/assets/{original["id"]}').json() == original
+
+
+@pytest.mark.parametrize('kind', ['corrupt', 'oversized'])
+def test_invalid_replacement_leaves_original_photo(client, storage, kind):
+    original = create(client).json()
+    content = b'not an image' if kind == 'corrupt' else b'x' * (8 * 1024 * 1024 + 1)
+    assert edit(client, original['id'], content=content).status_code == 400
+    assert client.get(f'/api/assets/{original["id"]}').json() == original
+    assert client.get(original['photoUrl']).status_code == 200
+    assert len(list((storage / 'uploads').iterdir())) == 1
+
+
+def test_delete_removes_record_photo_and_updates_summary(client, storage):
+    removed = create(client, 'WH-001', 'Tools').json()
+    kept = create(client, 'WH-002', 'Electronics').json()
+    response = client.delete(f'/api/assets/{removed["id"]}')
+    assert response.status_code == 204
+    assert response.content == b''
+    assert client.get(f'/api/assets/{removed["id"]}').status_code == 404
+    assert client.get(removed['photoUrl']).status_code == 404
+    assert client.get(f'/api/assets/{kept["id"]}').json() == kept
+    assert client.get(kept['photoUrl']).status_code == 200
+    listing = client.get('/api/assets').json()
+    assert listing['stats'] == {'totalAssets': 1, 'totalCategories': 1, 'addedToday': 1}
+    assert listing['categories'] == [{'category': 'Electronics', 'count': 1}]
+    assert len(list((storage / 'uploads').iterdir())) == 1
+    assert client.delete(f'/api/assets/{kept["id"]}').status_code == 204
+    assert client.get('/api/assets').json()['total'] == 0
+    assert not list((storage / 'uploads').iterdir())
+
+
+def test_edit_and_delete_missing_records_are_not_found(client, storage):
+    kept = create(client).json()
+    assert edit(client, 9999, content=photograph()).status_code == 404
+    assert client.delete('/api/assets/9999').status_code == 404
+    assert client.get(f'/api/assets/{kept["id"]}').json() == kept
+    assert len(list((storage / 'uploads').iterdir())) == 1
+
+
+def test_concurrent_photo_replacements_keep_only_current_photo(client, storage):
+    original = create(client).json()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda i: edit(client, original['id'], f'WH-{i}', content=photograph(size=(200 + i, 120))), range(2)))
+    assert all(response.status_code == 200 for response in responses)
+    current = client.get(f'/api/assets/{original["id"]}').json()
+    assert current['createdAt'] == original['createdAt']
+    assert client.get(current['photoUrl']).status_code == 200
+    assert len(list((storage / 'uploads').iterdir())) == 1
+
+
+def test_concurrent_edit_and_delete_do_not_leave_photographs(client, storage):
+    original = create(client).json()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        update = pool.submit(edit, client, original['id'], content=photograph(size=(300, 200)))
+        remove = pool.submit(client.delete, f'/api/assets/{original["id"]}')
+        assert update.result().status_code in {200, 404}
+        assert remove.result().status_code == 204
+    assert client.get('/api/assets').json()['total'] == 0
+    assert not list((storage / 'uploads').iterdir())

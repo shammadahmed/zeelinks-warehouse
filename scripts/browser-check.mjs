@@ -183,8 +183,141 @@ try {
   );
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 
+  // Edit details without requiring a new image, then replace the photograph.
+  const originalResponse = await fetch(`${baseURL}/api/assets?q=DEMO-UI-007`);
+  const original = (await originalResponse.json()).items[0];
+  await page
+    .getByRole("button", { name: "View DEMO-UI-007", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel(/Asset ID/)).toHaveValue("DEMO-UI-007");
+  await dialog.getByLabel(/Asset ID/).fill("DEMO-EDITED-007");
+  await dialog.locator("select").selectOption("Tools");
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText(
+    "DEMO-EDITED-007 has been updated.",
+  );
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "DEMO-EDITED-007", exact: true }),
+  ).toBeVisible();
+  const detailUrl = `${baseURL}/api/assets/${original.id}`;
+  let updated = await (await fetch(detailUrl)).json();
+  expect(updated.createdAt).toBe(original.createdAt);
+  expect(updated.photoUrl).toBe(original.photoUrl);
+  expect(updated.category).toBe("Tools");
+
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await dialog
+    .getByLabel("Upload asset photograph")
+    .setInputFiles(path.join(root, "docs/demo/camera.jpg"));
+  await dialog
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "DEMO-EDITED-007", exact: true }),
+  ).toBeVisible();
+  updated = await (await fetch(detailUrl)).json();
+  expect(updated.photoUrl).not.toBe(original.photoUrl);
+  expect(updated.createdAt).toBe(original.createdAt);
+  expect((await fetch(`${baseURL}${original.photoUrl}`)).status).toBe(404);
+
+  // Opening, cancelling, or dismissing confirmation must not send DELETE.
+  let deleteRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "DELETE") deleteRequests += 1;
+  });
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  dialog = page.getByRole("dialog");
+  await expect(
+    dialog.getByRole("heading", { name: "Delete asset?", exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("DEMO-EDITED-007", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Cancel", exact: true }),
+  ).toBeFocused();
+  expect(deleteRequests).toBe(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "DEMO-EDITED-007", exact: true }),
+  ).toBeVisible();
+  expect(deleteRequests).toBe(0);
+  expect((await fetch(detailUrl)).status).toBe(200);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Delete asset?", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "DEMO-EDITED-007", exact: true }),
+  ).toBeVisible();
+  expect(deleteRequests).toBe(0);
+
+  // A failed deletion remains in the dialog and can be retried successfully.
+  await page.route(detailUrl, (route) => {
+    if (route.request().method() === "DELETE")
+      return route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({
+          detail: "Could not delete the asset. Please try again.",
+        }),
+      });
+    return route.continue();
+  });
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete asset", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    "Could not delete the asset.",
+  );
+  expect((await fetch(detailUrl)).status).toBe(200);
+  await page.unroute(detailUrl);
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Delete asset", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText(
+    "DEMO-EDITED-007 has been deleted.",
+  );
+  expect(deleteRequests).toBe(2);
+  expect((await fetch(detailUrl)).status).toBe(404);
+  expect((await fetch(`${baseURL}${updated.photoUrl}`)).status).toBe(404);
+  await expect(page.locator(".asset-card")).toHaveCount(6);
+
   await page.getByRole("button", { name: "List view" }).click();
-  await expect(page.locator("tbody tr")).toHaveCount(7);
+  await expect(page.locator("tbody tr")).toHaveCount(6);
   await page.getByRole("button", { name: "Grid view" }).click();
   await page
     .getByRole("combobox", { name: "Filter by category" })
@@ -193,7 +326,7 @@ try {
   await page
     .getByRole("combobox", { name: "Filter by category" })
     .selectOption("");
-  await expect(page.locator(".asset-card")).toHaveCount(7);
+  await expect(page.locator(".asset-card")).toHaveCount(6);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(

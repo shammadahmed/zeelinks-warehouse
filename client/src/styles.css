@@ -1015,3 +1015,60 @@ td small {
     transition: none !important;
   }
 }
+
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  border: 1px solid #b6382b;
+  border-radius: 4px;
+  background: #b6382b;
+  color: white;
+  padding: 10px 16px;
+  font-weight: 500;
+}
+.danger-button:hover {
+  background: #982e23;
+}
+.delete-action {
+  color: #a5362b;
+  border-color: #e3bdb8;
+}
+.delete-action:hover {
+  background: #fff3f1;
+}
+.detail-action-footer {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.record-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.delete-modal {
+  width: 460px;
+}
+.delete-content {
+  padding: 24px;
+}
+.delete-content p {
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.delete-content p + p {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .detail-action-footer .record-actions {
+    width: 100%;
+  }
+  .delete-content {
+    padding: 20px;
+  }
+}

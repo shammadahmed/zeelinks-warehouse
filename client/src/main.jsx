@@ -19,7 +19,8 @@ import {
 import "./styles.css";
 
 import { api, formatDate, formatTime } from "./lib.js";
-import AddAsset from "./components/AddAsset.jsx";
+import AssetForm from "./components/AssetForm.jsx";
+import DeleteAsset from "./components/DeleteAsset.jsx";
 import AssetDetail from "./components/AssetDetail.jsx";
 import "@fontsource-variable/dm-sans";
 
@@ -35,6 +36,7 @@ function App() {
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [modal, setModal] = useState(null);
+  const [actionAsset, setActionAsset] = useState(null);
   const [toast, setToast] = useState("");
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -84,6 +86,22 @@ function App() {
     setSort("newest");
     setRefresh((v) => v + 1);
     setToast(`${asset.assetId} has been registered.`);
+  };
+  const edited = (asset) => {
+    reset();
+    setModal(asset.id);
+    setRefresh((v) => v + 1);
+    setToast(`${asset.assetId} has been updated.`);
+  };
+  const deleted = (asset) => {
+    setModal(null);
+    reset();
+    setRefresh((v) => v + 1);
+    setToast(`${asset.assetId} has been deleted.`);
+  };
+  const openAction = (action, asset) => {
+    setActionAsset(asset);
+    setModal(action);
   };
   const assets = data?.items || [];
   const stats = data?.stats;
@@ -411,14 +429,34 @@ function App() {
         </main>
       </div>
       {modal === "add" && (
-        <AddAsset
+        <AssetForm
           categories={data?.categories.map((c) => c.category) || []}
           onClose={() => setModal(null)}
           onSaved={saved}
         />
       )}
+      {modal === "edit" && (
+        <AssetForm
+          asset={actionAsset}
+          categories={data?.categories.map((c) => c.category) || []}
+          onClose={() => setModal(actionAsset.id)}
+          onSaved={edited}
+        />
+      )}
+      {modal === "delete" && (
+        <DeleteAsset
+          asset={actionAsset}
+          onCancel={() => setModal(actionAsset.id)}
+          onDeleted={deleted}
+        />
+      )}
       {typeof modal === "number" && (
-        <AssetDetail id={modal} onClose={() => setModal(null)} />
+        <AssetDetail
+          id={modal}
+          onClose={() => setModal(null)}
+          onEdit={(asset) => openAction("edit", asset)}
+          onDelete={(asset) => openAction("delete", asset)}
+        />
       )}
       {toast && (
         <div className="toast" role="status">

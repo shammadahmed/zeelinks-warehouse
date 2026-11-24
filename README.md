@@ -9,6 +9,8 @@ A small on-premises asset registration prototype built with **React, FastAPI, an
 - Case-insensitive, unique Asset IDs; duplicate records return a clear error.
 - Search by all or part of an Asset ID; filter by category, sort, and paginate.
 - Grid and list views, individual record details, and full photograph viewing.
+- Edit an asset’s ID and category, with an optional replacement photograph. The original creation timestamp and source are preserved.
+- Delete assets from the detail view after confirming the selected record. The record and stored photograph are removed.
 - Responsive mobile layout, keyboard-accessible dialogs, loading, empty, and error states.
 - JPG, PNG, and WebP validation by decoding actual image bytes. Limit: 8 MB and 25 megapixels; animated images are rejected.
 - Images are oriented, resized to fit 1600 × 1600, converted to JPEG, and stripped of metadata. Originals are not retained.
@@ -148,6 +150,8 @@ Asset IDs are 1–80 characters and start with a letter or number. Letters, numb
 | GET | `/api/assets` | List/search/filter records and get summary statistics |
 | POST | `/api/assets` | Create a record with a required photograph |
 | GET | `/api/assets/{id}` | Retrieve one record by its internal numeric ID |
+| PUT | `/api/assets/{id}` | Update the ID/category and optionally replace the photograph |
+| DELETE | `/api/assets/{id}` | Delete the record and its stored photograph |
 | GET | `/uploads/{filename}` | Retrieve a saved photograph |
 | GET | `/docs` | Interactive OpenAPI documentation |
 
@@ -175,6 +179,28 @@ Successful response: **201 Created**, with a `Location` header:
 ```
 
 Errors use FastAPI's `detail` field: **400** for invalid images/field content, **409** for duplicate IDs, **422** for missing or incorrectly typed fields, and **404** for missing records. The frontend displays readable messages.
+
+### Edit a record
+
+Open an asset in the dashboard and select **Edit**. Update the Asset ID or category; the current photograph is retained unless you upload a replacement. Select **Save changes** to save, or **Cancel** to leave the record unchanged.
+
+```bash
+curl -X PUT http://localhost:3001/api/assets/1 \
+  -F 'assetId=WH-0042' \
+  -F 'category=Electronics'
+```
+
+Add `-F 'photo=@/path/to/replacement.jpg'` to replace the photograph. The API returns **200 OK** with the updated record. Its numeric ID, original creation timestamp, and entry source remain unchanged. A duplicate Asset ID returns **409 Conflict**. Replaced photographs are removed from storage.
+
+### Delete a record
+
+Open an asset and select **Delete**. The confirmation identifies the Asset ID and explains that the record and photograph will be permanently removed. **Cancel**, Escape, or closing the dialog leaves the asset unchanged. Only **Delete asset** submits the deletion.
+
+```bash
+curl -X DELETE http://localhost:3001/api/assets/1
+```
+
+Successful deletion returns **204 No Content**. A missing record returns **404 Not Found**. API clients must obtain any needed confirmation before issuing a DELETE request; the interactive confirmation is provided by the dashboard.
 
 ### Search, category, pagination, and sort
 
@@ -233,7 +259,7 @@ npm run build
 npm run format:check
 ```
 
-The 23 API tests cover creation, automatic timestamps, photograph retrieval and resizing, unsupported/corrupt/oversized images, validation, duplicate and concurrent IDs, search literal handling, category filters, pagination, sorting, automated sources, persistence across app restart, API documentation, and missing records.
+The 36 API tests cover creation, automatic timestamps, photograph retrieval and resizing, unsupported/corrupt/oversized images, validation, duplicate and concurrent IDs, search literal handling, category filters, pagination, sorting, automated sources, persistence across app restart, API documentation, missing records, editing without changing creation timestamps, photograph replacement and cleanup, deletion, and concurrent edit/delete requests.
 
 ## Project layout
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 
 export default function Modal({
@@ -8,6 +8,7 @@ export default function Modal({
   onClose,
   busy = false,
   className = "",
+  initialFocusRef,
 }) {
   const ref = useRef(null);
   const closeRef = useRef(onClose);
@@ -16,7 +17,7 @@ export default function Modal({
     const previous = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    ref.current.focus();
+    (initialFocusRef?.current || ref.current).focus();
     const keydown = (event) => {
       if (event.key === "Escape" && !busy) closeRef.current();
       if (event.key !== "Tab") return;
@@ -53,7 +54,7 @@ export default function Modal({
       document.removeEventListener("keydown", keydown);
       previous?.focus();
     };
-  }, [busy]);
+  }, [busy, initialFocusRef]);
   return (
     <div
       className="modal-backdrop"

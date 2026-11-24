@@ -5,11 +5,12 @@ import {
   ImagePlus,
   Loader2,
   Plus,
+  Save,
   Upload,
   X,
 } from "lucide-react";
 import Modal from "./Modal.jsx";
-import { api } from "../lib.js";
+import { api, formatDate, formatTime } from "../lib.js";
 
 const DEFAULT_CATEGORIES = [
   "Equipment",
@@ -20,9 +21,15 @@ const DEFAULT_CATEGORIES = [
   "Other",
 ];
 
-export default function AddAsset({ categories, onClose, onSaved }) {
-  const [assetId, setAssetId] = useState("");
-  const [category, setCategory] = useState("");
+export default function AssetForm({
+  asset = null,
+  categories,
+  onClose,
+  onSaved,
+}) {
+  const editing = asset !== null;
+  const [assetId, setAssetId] = useState(asset?.assetId || "");
+  const [category, setCategory] = useState(asset?.category || "");
   const [customCategory, setCustomCategory] = useState("");
   const [photo, setPhoto] = useState(null);
   const [preview, setPreview] = useState("");
@@ -32,13 +39,13 @@ export default function AddAsset({ categories, onClose, onSaved }) {
   const input = useRef(null);
   useEffect(() => {
     if (!photo) {
-      setPreview("");
+      setPreview(asset?.photoUrl || "");
       return;
     }
     const url = URL.createObjectURL(photo);
     setPreview(url);
     return () => URL.revokeObjectURL(url);
-  }, [photo]);
+  }, [photo, asset?.photoUrl]);
   const choose = (file) => {
     if (!file) return;
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
@@ -54,7 +61,7 @@ export default function AddAsset({ categories, onClose, onSaved }) {
   };
   const submit = async (event) => {
     event.preventDefault();
-    if (!photo) {
+    if (!photo && !editing) {
       setError("Add a photograph before saving this asset.");
       return;
     }
@@ -64,12 +71,18 @@ export default function AddAsset({ categories, onClose, onSaved }) {
       "category",
       category === "__custom" ? customCategory.trim() : category,
     );
-    form.append("photo", photo);
+    if (photo) form.append("photo", photo);
     setBusy(true);
     setError("");
     try {
-      const asset = await api("/api/assets", { method: "POST", body: form });
-      onSaved(asset);
+      const saved = await api(
+        editing ? `/api/assets/${asset.id}` : "/api/assets",
+        {
+          method: editing ? "PUT" : "POST",
+          body: form,
+        },
+      );
+      onSaved(saved);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -77,8 +90,12 @@ export default function AddAsset({ categories, onClose, onSaved }) {
   };
   return (
     <Modal
-      title="Register an asset"
-      subtitle="Enter the asset details and upload a photograph."
+      title={editing ? "Edit asset" : "Register an asset"}
+      subtitle={
+        editing
+          ? "Update the details or replace the photograph."
+          : "Enter the asset details and upload a photograph."
+      }
       onClose={onClose}
       busy={busy}
     >
@@ -109,7 +126,13 @@ export default function AddAsset({ categories, onClose, onSaved }) {
                 <option value="" disabled>
                   Select a category
                 </option>
-                {[...new Set([...DEFAULT_CATEGORIES, ...categories])]
+                {[
+                  ...new Set([
+                    ...DEFAULT_CATEGORIES,
+                    ...categories,
+                    ...(asset ? [asset.category] : []),
+                  ]),
+                ]
                   .sort()
                   .map((c) => (
                     <option key={c}>{c}</option>
@@ -131,7 +154,7 @@ export default function AddAsset({ categories, onClose, onSaved }) {
             </label>
           )}
           <label className="photo-label">
-            Asset photograph <span>*</span>
+            Asset photograph {!editing && <span>*</span>}
           </label>
           <input
             className="sr-only"
@@ -161,7 +184,14 @@ export default function AddAsset({ categories, onClose, onSaved }) {
           >
             {preview ? (
               <>
-                <img src={preview} alt="Selected asset preview" />
+                <img
+                  src={preview}
+                  alt={
+                    photo
+                      ? "Selected asset preview"
+                      : "Current asset photograph"
+                  }
+                />
                 <span className="replace-photo">
                   <ImagePlus size={17} /> Change photograph
                 </span>
@@ -192,11 +222,24 @@ export default function AddAsset({ categories, onClose, onSaved }) {
               </button>
             </div>
           )}
+          {editing && !photo && (
+            <small>
+              Keep the current photograph, or upload a new image to replace it.
+            </small>
+          )}
           <div className="timestamp-note">
             <Clock3 size={18} />
             <div>
-              <strong>Date and time are recorded automatically</strong>
-              <p>The server timestamps your record when you save it.</p>
+              <strong>
+                {editing
+                  ? "Original registration date"
+                  : "Date and time are recorded automatically"}
+              </strong>
+              <p>
+                {editing
+                  ? `${formatDate(asset.createdAt)} at ${formatTime(asset.createdAt)}. Editing keeps this timestamp.`
+                  : "The server timestamps your record when you save it."}
+              </p>
             </div>
           </div>
         </fieldset>
@@ -215,8 +258,14 @@ export default function AddAsset({ categories, onClose, onSaved }) {
             Cancel
           </button>
           <button className="primary-button" disabled={busy}>
-            {busy ? <Loader2 className="spin" size={17} /> : <Plus size={17} />}
-            {busy ? "Saving asset…" : "Save asset"}
+            {busy ? (
+              <Loader2 className="spin" size={17} />
+            ) : editing ? (
+              <Save size={17} />
+            ) : (
+              <Plus size={17} />
+            )}
+            {busy ? "Saving asset…" : editing ? "Save changes" : "Save asset"}
           </button>
         </footer>
       </form>
